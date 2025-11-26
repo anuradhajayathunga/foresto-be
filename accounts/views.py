@@ -1,14 +1,14 @@
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, AllowAny  # 👈 add AllowAny
+from rest_framework.permissions import IsAuthenticated, AllowAny
 
 from .serializers import RegisterSerializer, UserSerializer
 
 
 class RegisterView(APIView):
-    permission_classes = [AllowAny]        # 👈 important
-    authentication_classes = []            # 👈 optional, but makes sure no auth is required
+    permission_classes = [AllowAny]
+    authentication_classes = []  # optional
 
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
