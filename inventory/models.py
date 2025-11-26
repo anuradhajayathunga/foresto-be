@@ -80,30 +80,6 @@ class MenuItem(TimeStampedModel):
         return f"{self.name} - {self.code}"
     
 
-class Inventory(TimeStampedModel):
-    store = models.ForeignKey(
-        Store,
-        on_delete=models.CASCADE,
-        related_name="inventory",
-    )
-    ingredient = models.ForeignKey(
-        Ingredient,
-        on_delete=models.CASCADE,
-        related_name="inventory",
-    )
-    quantity_on_hand = models.FloatField(default=0)
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["store", "ingredient"],
-                name="unique_inventory_store_ingredient",
-            )
-        ]
-
-    def __str__(self) -> str:
-        return f"{self.store.name} - {self.ingredient.name}: {self.quantity_on_hand}"
-
 class RecipeComponent(TimeStampedModel):
     menu_item = models.ForeignKey(
         MenuItem,
@@ -123,11 +99,39 @@ class RecipeComponent(TimeStampedModel):
         constraints = [
             models.UniqueConstraint(
                 fields=["menu_item", "ingredient"],
-                name="unique_recipe_menuitem_ingredient",
+                name="unique_recipe_component",
             )
         ]
 
-    
+    def __str__(self) -> str:
+        return f"{self.quantity_per_portion} {self.ingredient.unit_of_measure} {self.ingredient.name} for {self.menu_item.name}"
+
+
+class InventoryRecord(models.Model):
+    store = models.ForeignKey(
+        Store,
+        on_delete=models.CASCADE,
+        related_name="inventory_records",
+    )
+    ingredient = models.ForeignKey(
+        Ingredient,
+        on_delete=models.CASCADE,
+        related_name="inventory_records",
+    )
+    quantity_on_hand = models.FloatField(default=0)
+    last_updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["store", "ingredient"],
+                name="unique_inventory_store_ingredient",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.store.name}: {self.ingredient.name} = {self.quantity_on_hand}"
+
 
 class Sale(TimeStampedModel):
     DATA_SOURCE_CHOICES = [
