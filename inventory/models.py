@@ -70,7 +70,12 @@ class MenuItem(TimeStampedModel):
     category = models.CharField(
         max_length=100,
         blank=True,
-        help_text="Rice, Noodles, Drinks",
+        help_text="e.g. Rice, Noodles, Drinks",
+    )
+    unit = models.CharField(
+        max_length=50,
+        default="portion",
+        help_text="portion, plate, glass, etc.",
     )
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
