@@ -4,6 +4,7 @@ from .views import (
     SupplierListCreateView,
     IngredientListCreateView,
     MenuItemListCreateView,
+    MenuItemRetrieveUpdateDestroyView,   # 👈 new
     InventoryRecordListCreateView,
     RecipeComponentListCreateView,   # 👈
     RecipeComponentDestroyView,      # 👈
@@ -15,6 +16,7 @@ urlpatterns = [
     path("suppliers/", SupplierListCreateView.as_view(), name="supplier-list-create"),
     path("ingredients/", IngredientListCreateView.as_view(), name="ingredient-list-create"),
     path("menu-items/", MenuItemListCreateView.as_view(), name="menuitem-list-create"),
+    path("menu-items/<int:pk>/", MenuItemRetrieveUpdateDestroyView.as_view(), name="menuitem-detail"),  # 👈
     path("inventory/", InventoryRecordListCreateView.as_view(), name="inventory-list-create"),
       path(
         "menu-items/<int:menu_item_id>/recipe/",

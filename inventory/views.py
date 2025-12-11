@@ -32,12 +32,20 @@ class IngredientListCreateView(generics.ListCreateAPIView):
     serializer_class = IngredientSerializer
     permission_classes = [permissions.IsAuthenticated]
 
-
 class MenuItemListCreateView(generics.ListCreateAPIView):
     queryset = MenuItem.objects.all()
     serializer_class = MenuItemSerializer
     permission_classes = [permissions.IsAuthenticated]
-
+class MenuItemRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    GET    /api/inventory/menu-items/<id>/
+    PUT    /api/inventory/menu-items/<id>/
+    PATCH  /api/inventory/menu-items/<id>/
+    DELETE /api/inventory/menu-items/<id>/
+    """
+    queryset = MenuItem.objects.all()
+    serializer_class = MenuItemSerializer
+    permission_classes = [permissions.IsAuthenticated]
 
 class InventoryRecordListCreateView(generics.ListCreateAPIView):
     queryset = InventoryRecord.objects.all()
