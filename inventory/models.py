@@ -8,6 +8,29 @@ class TimeStampedModel(models.Model):
     class Meta:
         abstract = True
 
+class IngredientDailyDemand(models.Model):
+    store = models.ForeignKey(
+        "Store",
+        on_delete=models.CASCADE
+    )
+    ingredient = models.ForeignKey(
+        "Ingredient",
+        on_delete=models.CASCADE
+    )
+    demand_date = models.DateField()
+    quantity = models.FloatField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["store", "ingredient", "demand_date"],
+                name="unique_daily_ingredient_demand",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.demand_date} - {self.store} - {self.ingredient}: {self.quantity}"
+
 
 class Store(TimeStampedModel):
     name = models.CharField(max_length=200)
@@ -124,6 +147,13 @@ class InventoryRecord(models.Model):
         related_name="inventory_records",
     )
     quantity_on_hand = models.FloatField(default=0)
+
+    expiry_date = models.DateField(   # ✅ ADD THIS LINE
+        null=True,
+        blank=True,
+        help_text="Expiry date for perishable ingredients",
+    )
+
     last_updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -294,3 +324,5 @@ class MessageLog(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.channel} to {self.recipient} at {self.sent_at}"
+    
+    
