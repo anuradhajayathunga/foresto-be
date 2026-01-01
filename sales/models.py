@@ -1,6 +1,7 @@
 from decimal import Decimal
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 class Sale(models.Model):
     class PaymentMethod(models.TextChoices):
@@ -30,6 +31,9 @@ class Sale(models.Model):
     notes = models.TextField(blank=True)
 
     inventory_deducted = models.BooleanField(default=False)
+    
+    sold_at = models.DateTimeField(default=timezone.now, db_index=True)
+    import_ref = models.CharField(max_length=120, unique=True, null=True, blank=True)
 
 
     class Meta:
