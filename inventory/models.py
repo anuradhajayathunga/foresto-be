@@ -288,10 +288,12 @@ class Forecast(TimeStampedModel):
 
 class MessageLog(TimeStampedModel):
     CHANNEL_CHOICES = [
-        ("SMS", "SMS"),
-        ("WHATSAPP", "WhatsApp"),
-        ("EMAIL", "Email"),
-    ]
+    ("SYSTEM", "System"),
+    ("SMS", "SMS"),
+    ("WHATSAPP", "WhatsApp"),
+    ("EMAIL", "Email"),
+]
+
 
     purchase_order = models.ForeignKey(
         PurchaseOrder,

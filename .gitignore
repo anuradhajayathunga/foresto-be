@@ -3,18 +3,19 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.log
 
-# Virtual environment
+# Virtual Environment
 venv/
-.env
 
 # Django
 db.sqlite3
-staticfiles/
-
-# CSV / local data
-*.csv
+.env
+.env.*
 
 # OS
 .DS_Store
 Thumbs.db
+
+# Celery
+celerybeat-schedule

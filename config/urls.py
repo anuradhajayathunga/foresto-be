@@ -17,4 +17,6 @@ urlpatterns = [
 
     # Inventory
     path("api/inventory/", include("inventory.urls")),
+
+path('api/auth/', include('accounts.urls')),
 ]

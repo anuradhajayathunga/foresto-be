@@ -1,0 +1,10 @@
+ingredient_id,location,qty_on_hand,expiry_date
+1,Main Warehouse,240.0,
+2,Main Warehouse,45.0,
+3,Main Warehouse,30.0,
+4,Cold Storage,20.0,
+5,Main Warehouse,60.0,
+6,Cold Storage,12.0,
+7,Cold Storage,18.0,
+8,Dry Store,10.0,
+9,Main Warehouse,8.0,

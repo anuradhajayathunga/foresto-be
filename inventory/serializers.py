@@ -1,5 +1,9 @@
 from rest_framework import serializers
-from .models import Store, Supplier, Ingredient, MenuItem, InventoryRecord,RecipeComponent
+from .models import (
+    Store, Supplier, Ingredient, MenuItem,
+    InventoryRecord, RecipeComponent,
+    PurchaseOrder, PurchaseOrderItem
+)
 
 
 class StoreSerializer(serializers.ModelSerializer):
@@ -44,9 +48,7 @@ class InventoryRecordSerializer(serializers.ModelSerializer):
 
 
 class RecipeComponentSerializer(serializers.ModelSerializer):
-    # Nested ingredient for read
     ingredient = IngredientSerializer(read_only=True)
-    # Write ingredient via id
     ingredient_id = serializers.PrimaryKeyRelatedField(
         queryset=Ingredient.objects.all(),
         source="ingredient",
@@ -65,3 +67,33 @@ class RecipeComponentSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["menu_item", "created_at", "updated_at"]
+
+
+# =============================
+# SMART PO SERIALIZERS (STEP 7)
+# =============================
+
+class PurchaseOrderItemSerializer(serializers.ModelSerializer):
+    ingredient_name = serializers.CharField(
+        source="ingredient.name", read_only=True
+    )
+
+    class Meta:
+        model = PurchaseOrderItem
+        fields = ["ingredient", "ingredient_name", "ordered_quantity"]
+
+
+class PurchaseOrderSerializer(serializers.ModelSerializer):
+    items = PurchaseOrderItemSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = PurchaseOrder
+        fields = [
+            "id",
+            "store",
+            "supplier",
+            "status",
+            "created_at",
+            "expected_delivery_date",
+            "items",
+        ]
