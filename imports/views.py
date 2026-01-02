@@ -14,6 +14,11 @@ from menu.models import Category, MenuItem, RecipeLine
 from inventory.models import InventoryItem
 from django.http import HttpResponse
 
+from django.utils.dateparse import parse_datetime, parse_date
+from django.utils import timezone
+from sales.models import Sale, SaleItem
+
+
 def to_bool(v, default=True):
     if v is None:
         return default
@@ -67,6 +72,8 @@ class ImportCSVView(APIView):
                 result = self.import_ingredients(reader)
             elif kind == "recipes":
                 result = self.import_recipes(reader)
+            elif kind == "sales":
+                result = self.import_sales(reader, request)
             else:
                 return Response({"detail": "Invalid kind. Use: categories | menu_items | ingredients | recipes"}, status=400)
 
@@ -286,6 +293,163 @@ class ImportCSVView(APIView):
 
         return {"created": created, "updated": updated, "errors": errors}
 
+    def import_sales(self, reader, request):
+        """
+        One CSV row = one sale line
+        Rows grouped by sale_ref become one Sale
+
+        IMPORTANT:
+        - During import we do NOT deduct ingredients (safe)
+        - status VOID/DRAFT are allowed and do not affect stock
+        """
+
+        created = 0
+        updated = 0
+        errors = []
+
+        grouped = {}
+        for idx, row in enumerate(reader, start=2):
+            try:
+                sale_ref = (row.get("sale_ref") or "").strip()
+                if not sale_ref:
+                    raise ValueError("sale_ref is required")
+                grouped.setdefault(sale_ref, []).append((idx, row))
+            except Exception as e:
+                errors.append({"row": idx, "error": str(e), "data": row})
+
+        if errors:
+            return {"created": 0, "updated": 0, "errors": errors}
+
+        # allowed values from your model choices (optional, but helps)
+        allowed_status = {c[0] for c in (Sale._meta.get_field("status").choices or [])}
+        allowed_pm = {c[0] for c in (Sale._meta.get_field("payment_method").choices or [])}
+
+        def parse_sold_at(v):
+            s = (v or "").strip()
+            if not s:
+                return timezone.now()
+            dt = parse_datetime(s)
+            if dt:
+                return dt if timezone.is_aware(dt) else timezone.make_aware(dt)
+            d = parse_date(s)
+            if d:
+                dt2 = timezone.datetime(d.year, d.month, d.day, 0, 0, 0)
+                return timezone.make_aware(dt2)
+            raise ValueError("Invalid sold_at (use YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)")
+
+        # ✅ Always false for imports (so NO recipe deduction triggers)
+        APPLY_INGREDIENTS = False
+
+        for sale_ref, rows in grouped.items():
+            try:
+                first = rows[0][1]
+
+                payment_method = (first.get("payment_method") or "").strip()
+                if not payment_method:
+                    raise ValueError("payment_method is required")
+                if allowed_pm and payment_method not in allowed_pm:
+                    raise ValueError(f"Invalid payment_method '{payment_method}'")
+
+                status_val = (first.get("status") or "PAID").strip()
+                if allowed_status and status_val not in allowed_status:
+                    raise ValueError(f"Invalid status '{status_val}'")
+
+                sold_at = parse_sold_at(first.get("sold_at"))
+                customer_name = (first.get("customer_name") or "").strip()
+                notes = (first.get("notes") or "").strip()
+                discount = to_decimal(first.get("discount"), default="0.00")
+                tax = to_decimal(first.get("tax"), default="0.00")
+
+                # idempotent: same sale_ref updates instead of duplicates
+                sale, was_created = Sale.objects.update_or_create(
+                    import_ref=sale_ref,
+                    defaults={
+                        "sold_at": sold_at,
+                        "payment_method": payment_method,
+                        "status": status_val,
+                        "customer_name": customer_name,
+                        "notes": notes,
+                        "discount": discount,
+                        "tax": tax,
+                        "created_by": request.user,
+                    },
+                )
+
+                if not was_created:
+                    SaleItem.objects.filter(sale=sale).delete()
+
+                subtotal = Decimal("0.00")
+
+                for sort_order, (row_idx, row) in enumerate(rows):
+                    qty = int(row.get("qty") or 0)
+                    if qty <= 0:
+                        raise ValueError(f"Row {row_idx}: qty must be > 0")
+
+                    menu_item = None
+                    name = ""
+
+                    menu_item_id = (row.get("menu_item_id") or "").strip()
+                    cat_slug = (row.get("category_slug") or "").strip()
+                    mi_slug = (row.get("menu_item_slug") or "").strip()
+                    item_name = (row.get("item_name") or "").strip()
+
+                    if menu_item_id:
+                        menu_item = MenuItem.objects.get(pk=int(menu_item_id))
+                    elif cat_slug and mi_slug:
+                        category = Category.objects.get(slug=cat_slug)
+                        menu_item = MenuItem.objects.get(category=category, slug=mi_slug)
+                    elif item_name:
+                        name = item_name
+                    else:
+                        raise ValueError(
+                            f"Row {row_idx}: provide menu_item_id OR (category_slug + menu_item_slug) OR item_name"
+                        )
+
+                    unit_price = to_decimal(row.get("unit_price"), default=str(menu_item.price if menu_item else "0.00"))
+                    if not name:
+                        name = menu_item.name if menu_item else item_name
+
+                    line_total = (Decimal(qty) * Decimal(unit_price)).quantize(Decimal("0.01"))
+                    subtotal += line_total
+
+                    SaleItem.objects.create(
+                        sale=sale,
+                        menu_item=menu_item,
+                        name=name,
+                        qty=qty,
+                        unit_price=unit_price,
+                        line_total=line_total,
+                        sort_order=sort_order,
+                    )
+
+                total = (subtotal - discount + tax).quantize(Decimal("0.01"))
+                if total < 0:
+                    total = Decimal("0.00")
+
+                sale.subtotal = subtotal.quantize(Decimal("0.01"))
+                sale.total = total
+
+                # ✅ Never deduct ingredients during import
+                if APPLY_INGREDIENTS and sale.status == "PAID":
+                    # deduct_inventory_for_sale(sale)
+                    pass
+
+                # Also mark it as NOT deducted (safe)
+                sale.inventory_deducted = False
+                sale.save()
+
+                created += 1 if was_created else 0
+                updated += 0 if was_created else 1
+
+            except Exception as e:
+                errors.append({"row": rows[0][0], "error": f"{sale_ref}: {e}", "data": rows[0][1]})
+
+        return {"created": created, "updated": updated, "errors": errors}
+
+
+    
+    
+
 
 class DownloadCSVTemplateView(APIView):
     """
@@ -311,6 +475,22 @@ class DownloadCSVTemplateView(APIView):
             ],
             "recipes": [
                 "menu_item_name", "menu_category_name", "ingredient_sku", "qty"
+            ],
+            "sales": [
+                        "sale_ref",
+                        "sold_at",
+                        "status",
+                        "payment_method",
+                        "customer_name",
+                        "discount",
+                        "tax",
+                        "notes",
+                        "category_slug",
+                        "menu_item_slug",
+                        "menu_item_id",
+                        "item_name",
+                        "qty",
+                        "unit_price",
             ],
         }
 
