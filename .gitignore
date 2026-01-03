@@ -1,0 +1,41 @@
+# --- Python / Django ---
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+*.so
+venv/
+env/
+ENV/
+.venv/
+*.log
+*.pot
+db.sqlite3
+media/
+staticfiles/
+
+# Migrations (ignore caches, keep migration files)
+*/migrations/__pycache__/
+
+# --- Frontend / Next.js ---
+price-frontend/node_modules/
+price-frontend/.next/
+price-frontend/out/
+
+# --- Environment variables ---
+.env
+.env.*
+price-frontend/.env
+price-frontend/.env.local
+price-frontend/.env.development.local
+price-frontend/.env.test.local
+price-frontend/.env.production.local
+
+# --- IDE/editor ---
+.vscode/
+.idea/
+*.swp
+
+# --- OS files ---
+.DS_Store
+Thumbs.db
