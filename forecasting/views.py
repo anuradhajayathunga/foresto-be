@@ -3,6 +3,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from inventory.permissions import IsStaff
 from .services import predict_menu_demand
+from .services_history import predict_past_days
 
 class DemandForecastView(APIView):
     permission_classes = [IsStaff]
@@ -15,4 +16,13 @@ class DemandForecastView(APIView):
         top_n = max(1, min(top_n, 500))
 
         data = predict_menu_demand(horizon_days=horizon, top_n=top_n)
+        return Response(data)
+
+class ForecastHistoryView(APIView):
+    permission_classes = [IsStaff]
+
+    def get(self, request):
+        days = int(request.query_params.get("days", "14"))
+        top_n = int(request.query_params.get("top_n", "50"))
+        data = predict_past_days(days=days, top_n=top_n)
         return Response(data)
