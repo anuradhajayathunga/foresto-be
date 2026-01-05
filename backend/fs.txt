@@ -1,0 +1,30 @@
+hybrid_demand_forecasting_model/
+│
+├── data/
+│   ├── raw/
+│   │   └── sl_restaurant_demand_raw.csv
+│   │
+│   ├── processed/
+│   │   ├── train.csv
+│   │   └── test.csv
+│   │
+│   └── README.md
+│
+├── notebooks/
+│   ├── 01_dataset_creation.ipynb
+│   ├── 02_preprocessing.ipynb
+│   └── 03_model_training.ipynb
+│
+├── rules/
+│   └── rule_engine.py
+│
+├── models/
+│   └── lgbm_model.pkl
+│
+├── results/
+│   ├── evaluation_metrics.txt
+│   └── demand_forecast_plot.png
+│
+├── requirements.txt
+│
+└── README.md
