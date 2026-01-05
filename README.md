@@ -1,4 +1,3 @@
- 
 # Foresto | SmartRestaurant AI System — Backend (Django + PostgreSQL)
 
 A secure, scalable **Django REST Framework** backend for the **SmartRestaurant AI System**.  
@@ -123,7 +122,7 @@ Common packages in a DRF + PostgreSQL stack often include:
 ### 1) Clone the Repository
 
 ```bash
-git clone https://github.com/<YOUR_GITHUB_USERNAME>/foresto-be.git
+git clone https://github.com/anuradhajayathunga/foresto-be.git
 cd foresto-be
 ```
 
@@ -399,7 +398,7 @@ feat(forecasting): add async training endpoint
 1. Setup local environment
 
 ```bash
-git clone https://github.com/<YOUR_GITHUB_USERNAME>/foresto-be.git
+git clone https://github.com/anuradhajayathunga/foresto-be.git
 cd foresto-be
 python -m venv env
 source env/bin/activate
