@@ -5,8 +5,6 @@ Provides APIs for restaurant operations including **sales**, **purchasing**, **i
 
 The backend is designed to integrate with the **Foresto Next.js frontend** and expose REST/JSON endpoints with authentication and role-based access patterns.
 
----
-
 ## Table of Contents
 
 - [Project Overview](#project-overview)
@@ -43,7 +41,6 @@ It enables:
 
 Django officially supports PostgreSQL as a primary database backend. :contentReference[oaicite:0]{index=0}
 
----
 
 ## Key Features
 
@@ -54,7 +51,7 @@ Django officially supports PostgreSQL as a primary database backend. :contentRef
 - Forecasting module (train + predict + results/history)
 - Optional async processing using Redis + Celery (recommended for long forecasting jobs)
 
----
+
 
 ## Tech Stack
 
@@ -65,7 +62,7 @@ Django officially supports PostgreSQL as a primary database backend. :contentRef
 - **CORS**: `django-cors-headers` :contentReference[oaicite:2]{index=2}
 - **Async / Queue (Optional)**: Redis + Celery (recommended for ML training jobs)
 
----
+
 
 ## Architecture Diagram
 
@@ -147,7 +144,7 @@ env\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
----
+
 
 ## Database Setup (PostgreSQL)
 
@@ -170,7 +167,7 @@ GRANT ALL PRIVILEGES ON DATABASE foresto_db TO foresto_user;
 
 Django supports PostgreSQL through the `django.db.backends.postgresql` engine setting. ([Django Project][3])
 
----
+
 
 ## Environment Variables
 
@@ -232,7 +229,6 @@ python manage.py runserver
 python manage.py collectstatic
 ```
 
----
 
 ## Project Structure
 
@@ -313,7 +309,7 @@ Most DRF + Next.js stacks use **JWT** (access + refresh) for API calls; Simple J
 If your frontend runs on `http://localhost:3000`, configure CORS to allow that origin.
 `django-cors-headers` is widely used for this. ([PyPI][1])
 
----
+
 
 ## Forecasting & Background Jobs
 
@@ -395,11 +391,7 @@ Example:
 
 ```text
 feat(forecasting): add async training endpoint
-fix(auth): handle token refresh edge case
-docs(readme): update postgres setup guide
 ```
-
----
 
 ## Contributing
 
