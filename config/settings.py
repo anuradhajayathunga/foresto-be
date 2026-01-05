@@ -35,6 +35,8 @@ INSTALLED_APPS = [
     "inventory",
     "purchases",
     "imports",
+    "forecasting",
+
 
 
 ]
@@ -123,3 +125,5 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
+
+FORECAST_MODEL_PATH = os.path.join(BASE_DIR, "artifacts", "forecasting", "menu_item_demand_model.pkl")
