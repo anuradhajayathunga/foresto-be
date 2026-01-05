@@ -79,7 +79,7 @@ flowchart LR
     BE --> R[(Redis / Queue - Optional)]
     BE --> ML[Forecasting / ML Service or Module]
     ML --> DB
-
+```
 
 ### Backend Internal Flow
 
@@ -204,10 +204,6 @@ CELERY_BROKER_URL=redis://localhost:6379/0
 CELERY_RESULT_BACKEND=redis://localhost:6379/0
 ```
 
-> Make sure you **do not commit** real secrets. Commit an `.env.example` instead.
-
----
-
 ## Available Commands
 
 ### Migrations
@@ -239,8 +235,6 @@ python manage.py collectstatic
 ---
 
 ## Project Structure
-
-> Adjust the names below to match your repo (e.g., `config/`, `apps/`, `restaurant/`, etc.)
 
 ```text
 foresto-be/
@@ -274,9 +268,6 @@ Recommended API prefix:
 * `/api/`
 
 ### Typical Modules (Example)
-
-> Endpoint paths depend on your `urls.py`. Use this as a template list and update to match your project.
-
 * **Auth**
 
   * `POST /api/auth/login/`
@@ -445,21 +436,20 @@ git push origin feature/your-feature
 
 5. Open a PR to `develop`
 
----
 
 ## Related Repositories
 
 * **Frontend Repository:** `foresto-fe` (Next.js App Router)
 * **Backend Repository:** `foresto-be` (this repo)
 
----
+
 
 ## License
 
 Academic final year project at **Sri Lanka Institute of Information Technology**.
 **License:** MIT
 
----
+
 
 ## Maintainers & Team
 
@@ -468,7 +458,7 @@ Academic final year project at **Sri Lanka Institute of Information Technology**
 * Member 3: — GitHub
 * Member 4: — GitHub
 
----
+
 
 ## Support
 For issues, questions, or contributions:
@@ -479,4 +469,3 @@ For issues, questions, or contributions:
 * Use GitHub Issues for bugs/tasks
 * Provide clear reproduction steps + screenshots/logs
 
-````
