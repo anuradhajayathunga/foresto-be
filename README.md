@@ -445,10 +445,10 @@ Academic final year project at **Sri Lanka Institute of Information Technology**
 
 ## Maintainers & Team
 
-* Member 1: — GitHub
-* Member 2: — GitHub
-* Member 3: — GitHub
-* Member 4: — GitHub
+* Member 1: [JAYATHUNGA A G I A](https://github.com/anuradhajayathunga)
+* Member 2: [THILAKARATHNAW P N S](https://github.com/NethumThilakarathna)
+* Member 3: [ALAWATHTHA K A](https://github.com/AlawaththaKA)
+* Member 4: [Fernando W G P N](https://github.com/PraveenNavodya)
 
 
 
