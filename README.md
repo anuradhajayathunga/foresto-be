@@ -431,8 +431,8 @@ git push origin feature/your-feature
 
 ## Related Repositories
 
-* **Frontend Repository:** `foresto-fe` (Next.js App Router)
-* **Backend Repository:** `foresto-be` (this repo)
+* **Frontend Repository:** `foresto-fe` (https://github.com/anuradhajayathunga/foresto-fe.git)
+* **Backend Repository:** `foresto-be` (https://github.com/anuradhajayathunga/foresto-be.git)
 
 
 
@@ -445,10 +445,10 @@ Academic final year project at **Sri Lanka Institute of Information Technology**
 
 ## Maintainers & Team
 
-* Member 1: JAYATHUNGA A G I A — [GitHub](https://github.com/anuradhajayathunga)
-* Member 2: THILAKARATHNAW P N S — [GitHub](https://github.com/NethumThilakarathna)
-* Member 3: ALAWATHTHA K A — [GitHub](https://github.com/AlawaththaKA)
-* Member 4: Fernando W G P N — [GitHub](https://github.com/PraveenNavodya)
+* Member 1: [JAYATHUNGA A G I A](https://github.com/anuradhajayathunga)
+* Member 2: [THILAKARATHNAW P N S](https://github.com/NethumThilakarathna)
+* Member 3: [ALAWATHTHA K A](https://github.com/AlawaththaKA)
+* Member 4: [Fernando W G P N](https://github.com/PraveenNavodya)
 
 
 
@@ -460,3 +460,4 @@ For issues, questions, or contributions:
 
 * Use GitHub Issues for bugs/tasks
 * Provide clear reproduction steps + screenshots/logs
+
