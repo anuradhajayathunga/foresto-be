@@ -431,8 +431,8 @@ git push origin feature/your-feature
 
 ## Related Repositories
 
-* **Frontend Repository:** `foresto-fe` (Next.js App Router)
-* **Backend Repository:** `foresto-be` (this repo)
+* **Frontend Repository:** `foresto-fe` (https://github.com/anuradhajayathunga/foresto-fe.git)
+* **Backend Repository:** `foresto-be` (https://github.com/anuradhajayathunga/foresto-be.git)
 
 
 
