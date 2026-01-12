@@ -13,7 +13,8 @@ from inventory.services.supplier_service import SupplierService
 
 class SupplierDashboardView(views.APIView):
     """GET /api/suppliers/{id}/dashboard/"""
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
+
     
     def get(self, request, supplier_id):
         try:
