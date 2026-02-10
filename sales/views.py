@@ -97,3 +97,41 @@ class SaleViewSet(viewsets.ModelViewSet):
 
         return Response(data)
 
+
+@action(detail=False, methods=["get"])
+def daily_totals(self, request):
+    """
+    GET /api/sales/sales/daily_totals/?days=14
+    Returns daily total revenue + count for PAID sales.
+    """
+    days = int(request.query_params.get("days", "14"))
+    days = max(1, min(days, 365))
+
+    today = timezone.localdate()
+    start = today - timedelta(days=days - 1)
+
+    qs = self.get_queryset().filter(
+        status="PAID",
+        created_at__date__gte=start,
+        created_at__date__lte=today,
+    )
+
+    rows = (
+        qs.annotate(day=TruncDate("created_at"))
+          .values("day")
+          .annotate(total=Sum("total"), count=Count("id"))
+          .order_by("day")
+    )
+
+    by_day = {str(r["day"]): r for r in rows}
+    data = []
+    for i in range(days):
+        d = start + timedelta(days=i)
+        key = str(d)
+        r = by_day.get(key)
+        data.append({
+            "date": key,
+            "count": int(r["count"]) if r else 0,
+            "total": float(r["total"] or 0) if r else 0.0,
+        })
+    return Response(data)

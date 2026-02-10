@@ -18,6 +18,7 @@ class Supplier(models.Model):
 
 class PurchaseInvoice(models.Model):
     class Status(models.TextChoices):
+        DRAFT = "DRAFT", "Draft"        
         POSTED = "POSTED", "Posted"
         VOID = "VOID", "Void"
 

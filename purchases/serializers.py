@@ -41,6 +41,8 @@ class PurchaseLineInSerializer(serializers.Serializer):
     qty = serializers.DecimalField(max_digits=12, decimal_places=2)
     unit_cost = serializers.DecimalField(max_digits=12, decimal_places=2)
 
+    
+
 
 class PurchaseInvoiceCreateSerializer(serializers.Serializer):
     supplier = serializers.IntegerField()
@@ -128,3 +130,12 @@ class PurchaseInvoiceCreateSerializer(serializers.Serializer):
 
 class PurchaseVoidSerializer(serializers.Serializer):
     reason = serializers.CharField(required=False, allow_blank=True, max_length=200)
+
+class PurchaseDraftFromForecastSerializer(serializers.Serializer):
+    supplier = serializers.IntegerField()  # required (your model requires supplier)
+    scope = serializers.ChoiceField(choices=["tomorrow", "next7"], default="next7")
+    horizon_days = serializers.IntegerField(required=False, default=7)
+    top_n = serializers.IntegerField(required=False, default=50)
+    include_ok = serializers.BooleanField(required=False, default=False)
+    invoice_date = serializers.DateField(required=False)  # optional, default today
+    note = serializers.CharField(required=False, allow_blank=True)
