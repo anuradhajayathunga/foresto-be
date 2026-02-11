@@ -2,6 +2,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.db import models
 
+
 class InventoryItem(models.Model):
     class Unit(models.TextChoices):
         PCS = "PCS", "pcs"
@@ -10,8 +11,13 @@ class InventoryItem(models.Model):
         L = "L", "l"
         ML = "ML", "ml"
 
+    restaurant = models.ForeignKey(
+        "accounts.Restaurant",
+        on_delete=models.PROTECT,
+        related_name="inventory_items",
+    )
     name = models.CharField(max_length=180)
-    sku = models.CharField(max_length=60, unique=True)  # code like CHICKEN01
+    sku = models.CharField(max_length=60)  # unique per restaurant
     unit = models.CharField(max_length=5, choices=Unit.choices, default=Unit.PCS)
 
     current_stock = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
@@ -25,6 +31,15 @@ class InventoryItem(models.Model):
 
     class Meta:
         ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["restaurant", "sku"],
+                name="uq_inventoryitem_restaurant_sku",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["restaurant", "is_active"]),
+        ]
 
     def __str__(self):
         return f"{self.name} ({self.sku})"
