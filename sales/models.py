@@ -1,7 +1,9 @@
 from decimal import Decimal
+
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
+
 
 class Sale(models.Model):
     class PaymentMethod(models.TextChoices):
@@ -13,6 +15,12 @@ class Sale(models.Model):
         PAID = "PAID", "Paid"
         VOID = "VOID", "Void"
         DRAF = "DRAF", "Draf"
+
+    restaurant = models.ForeignKey(
+        "accounts.Restaurant",
+        on_delete=models.PROTECT,
+        related_name="sales",
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(
@@ -31,13 +39,21 @@ class Sale(models.Model):
     notes = models.TextField(blank=True)
 
     inventory_deducted = models.BooleanField(default=False)
-    
-    sold_at = models.DateTimeField(default=timezone.now, db_index=True)
-    import_ref = models.CharField(max_length=120, unique=True, null=True, blank=True)
 
+    sold_at = models.DateTimeField(default=timezone.now, db_index=True)
+    import_ref = models.CharField(max_length=120, null=True, blank=True)
 
     class Meta:
         ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["restaurant", "import_ref"],
+                name="uq_sale_restaurant_import_ref",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["restaurant", "status", "sold_at"]),
+        ]
 
     def __str__(self):
         return f"Sale #{self.id} - {self.total}"

@@ -1,21 +1,22 @@
+from collections import defaultdict
 from decimal import Decimal
+
 from django.db import transaction
 from rest_framework import serializers
-from .models import Sale, SaleItem
-from menu.models import MenuItem
-from collections import defaultdict
+
 from inventory.models import InventoryItem, StockMovement
-from menu.models import RecipeLine
+from menu.models import MenuItem, RecipeLine
+from .models import Sale, SaleItem
+
 
 class SaleItemCreateSerializer(serializers.Serializer):
     menu_item = serializers.IntegerField(required=False)
     name = serializers.CharField(required=False, allow_blank=True)
     qty = serializers.IntegerField(min_value=1)
 
+
 class SaleItemSerializer(serializers.ModelSerializer):
-    # return the FK id as integer (or null)
     menu_item = serializers.IntegerField(source="menu_item_id", read_only=True)
-    # optional extra fields to show menu name if exists
     menu_item_name = serializers.CharField(source="menu_item.name", read_only=True)
 
     class Meta:
@@ -29,12 +30,21 @@ class SaleSerializer(serializers.ModelSerializer):
     class Meta:
         model = Sale
         fields = (
-            "id", "created_at", "created_by",
-            "customer_name", "status", "payment_method",
-            "subtotal", "discount", "tax", "total",
-            "notes", "items"
+            "id",
+            "created_at",
+            "created_by",
+            "customer_name",
+            "status",
+            "payment_method",
+            "subtotal",
+            "discount",
+            "tax",
+            "total",
+            "notes",
+            "items",
         )
         read_only_fields = ("created_by", "subtotal", "total")
+
 
 class SaleCreateSerializer(serializers.Serializer):
     customer_name = serializers.CharField(required=False, allow_blank=True)
@@ -53,19 +63,21 @@ class SaleCreateSerializer(serializers.Serializer):
     @transaction.atomic
     def create(self, validated):
         user = self.context["request"].user
+        restaurant_id = self.context["restaurant_id"]
+
         discount = validated.get("discount", Decimal("0.00"))
         tax = validated.get("tax", Decimal("0.00"))
 
         sale = Sale.objects.create(
+            restaurant_id=restaurant_id,
             created_by=user,
             customer_name=validated.get("customer_name", ""),
             payment_method=validated["payment_method"],
-            status=validated["status"],          # ✅ add this
+            status=validated["status"],
             discount=discount,
             tax=tax,
             notes=validated.get("notes", ""),
         )
-
 
         subtotal = Decimal("0.00")
 
@@ -74,12 +86,14 @@ class SaleCreateSerializer(serializers.Serializer):
 
             menu_item_id = it.get("menu_item")
             if menu_item_id:
-                mi = MenuItem.objects.get(id=menu_item_id)
+                mi = MenuItem.objects.get(
+                    id=menu_item_id,
+                    category__restaurant_id=restaurant_id,
+                )
                 name = mi.name
                 unit_price = mi.price
                 menu_item = mi
             else:
-                # allow custom/manual item if needed
                 name = (it.get("name") or "").strip()
                 if not name:
                     raise serializers.ValidationError("Item name required when menu_item not provided.")
@@ -106,10 +120,11 @@ class SaleCreateSerializer(serializers.Serializer):
         sale.subtotal = subtotal.quantize(Decimal("0.01"))
         sale.total = total
         sale.save()
-        if sale.status == "PAID":   # use your real status value
-                deduct_inventory_for_sale(sale)
-        return sale
 
+        if sale.status == Sale.Status.PAID:
+            deduct_inventory_for_sale(sale)
+
+        return sale
 
 
 
@@ -123,19 +138,20 @@ def deduct_inventory_for_sale(sale: Sale):
 
     required = defaultdict(Decimal)  # ingredient_id -> total_qty_needed
 
-    # Fetch sale items with menu_item
     sale_items = sale.items.select_related("menu_item").all()
 
-    # Build required totals
     menu_item_ids = [si.menu_item_id for si in sale_items if si.menu_item_id]
     if not menu_item_ids:
         sale.inventory_deducted = True
         sale.save(update_fields=["inventory_deducted"])
         return
 
-    recipe_lines = RecipeLine.objects.filter(menu_item_id__in=menu_item_ids).select_related("ingredient")
+    recipe_lines = RecipeLine.objects.filter(
+        menu_item_id__in=menu_item_ids,
+        menu_item__category__restaurant_id=sale.restaurant_id,
+        ingredient__restaurant_id=sale.restaurant_id,
+    ).select_related("ingredient")
 
-    # Group recipe lines by menu_item
     recipe_by_menu = defaultdict(list)
     for rl in recipe_lines:
         recipe_by_menu[rl.menu_item_id].append(rl)
@@ -152,9 +168,11 @@ def deduct_inventory_for_sale(sale: Sale):
         sale.save(update_fields=["inventory_deducted"])
         return
 
-    # Lock items and validate stock
     inv_ids = list(required.keys())
-    items = InventoryItem.objects.select_for_update().filter(id__in=inv_ids)
+    items = InventoryItem.objects.select_for_update().filter(
+        id__in=inv_ids,
+        restaurant_id=sale.restaurant_id,
+    )
     item_map = {it.id: it for it in items}
 
     for ing_id, need in required.items():
@@ -162,12 +180,15 @@ def deduct_inventory_for_sale(sale: Sale):
         if not it:
             raise serializers.ValidationError({"detail": f"Ingredient {ing_id} not found."})
         if it.current_stock < need:
-            raise serializers.ValidationError({
-                "detail": f"Not enough stock for {it.name} ({it.sku}). "
-                          f"Have {it.current_stock}, need {need}."
-            })
+            raise serializers.ValidationError(
+                {
+                    "detail": (
+                        f"Not enough stock for {it.name} ({it.sku}). "
+                        f"Have {it.current_stock}, need {need}."
+                    )
+                }
+            )
 
-    # Deduct + movements
     for ing_id, need in required.items():
         it = item_map[ing_id]
         it.current_stock = (it.current_stock - need).quantize(Decimal("0.01"))
