@@ -1,9 +1,9 @@
 from django.urls import path
-from .views import DemandForecastView, ForecastHistoryView, IngredientPlanView
+from .views import ForecastView, ForecastHistoryView, ForecastIngredientsView
 
 urlpatterns = [
-    path("demand/", DemandForecastView.as_view()),
+    path("demand/", ForecastView.as_view()),
     path("history/", ForecastHistoryView.as_view()),
-    path("ingredients_plan/", IngredientPlanView.as_view()),
+    path("ingredients_plan/", ForecastIngredientsView.as_view()),
 
 ]
