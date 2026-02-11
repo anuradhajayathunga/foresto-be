@@ -1,24 +1,20 @@
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Restaurant, RestaurantMembership, Role
+from .models import Restaurant, RestaurantMembership
 from .serializers import (
     MemberCreateSerializer,
     MemberUpdateSerializer,
     RegisterSerializer,
     RestaurantMembershipSerializer,
     UserSerializer,
-    StaffRegisterInRestaurantSerializer,
-    MemberRoleUpdateSerializer,
 )
 from .tenancy import OWNER_ONLY, assert_restaurant_access
 
-
-from rest_framework.exceptions import PermissionDenied
-from rest_framework.permissions import IsAuthenticated
 
 class RegisterView(generics.CreateAPIView):
     serializer_class = RegisterSerializer
@@ -41,8 +37,7 @@ class MyRestaurantsView(APIView):
             .filter(user=request.user, is_active=True, restaurant__is_active=True)
             .order_by("restaurant__name")
         )
-        data = RestaurantMembershipSerializer(memberships, many=True).data
-        return Response(data)
+        return Response(RestaurantMembershipSerializer(memberships, many=True).data)
 
 
 class RestaurantMembersView(APIView):
@@ -51,8 +46,10 @@ class RestaurantMembersView(APIView):
     POST /api/auth/restaurants/<restaurant_id>/members/
 
     Owner only.
+    POST supports:
+      - existing user mode: {"user_id": 12, "role": "STAFF"}
+      - new user mode: {"username":"...", "email":"...", "password":"...", "role":"STAFF"}
     """
-
     permission_classes = [IsAuthenticated]
 
     def get(self, request, restaurant_id: int):
@@ -67,9 +64,14 @@ class RestaurantMembersView(APIView):
 
     def post(self, request, restaurant_id: int):
         restaurant = self._ensure_owner_access(request, restaurant_id)
-        serializer = MemberCreateSerializer(data=request.data, context={"restaurant": restaurant})
+
+        serializer = MemberCreateSerializer(
+            data=request.data,
+            context={"restaurant": restaurant, "request": request},
+        )
         serializer.is_valid(raise_exception=True)
         membership = serializer.save()
+
         return Response(
             RestaurantMembershipSerializer(membership).data,
             status=status.HTTP_201_CREATED,
@@ -77,26 +79,46 @@ class RestaurantMembersView(APIView):
 
     def _ensure_owner_access(self, request, restaurant_id: int) -> Restaurant:
         header_restaurant_id = request.headers.get("X-Restaurant-ID")
-        if not header_restaurant_id:
+
+        if header_restaurant_id:
+            try:
+                header_restaurant_id_int = int(header_restaurant_id)
+            except ValueError:
+                raise PermissionDenied("Invalid X-Restaurant-ID header.")
+            if header_restaurant_id_int != restaurant_id:
+                raise PermissionDenied("X-Restaurant-ID must match URL restaurant_id.")
+        else:
             request.META["HTTP_X_RESTAURANT_ID"] = str(restaurant_id)
 
         restaurant_id_from_context, _membership = assert_restaurant_access(
             request,
             allowed_roles=OWNER_ONLY,
         )
-        restaurant = get_object_or_404(Restaurant, id=restaurant_id_from_context, is_active=True)
-        return restaurant
+        if restaurant_id_from_context != restaurant_id:
+            raise PermissionDenied("Restaurant context mismatch.")
+
+        return get_object_or_404(Restaurant, id=restaurant_id, is_active=True)
 
 
 class RestaurantMemberDetailView(APIView):
     """
+    GET    /api/auth/restaurants/<restaurant_id>/members/<membership_id>/
     PATCH  /api/auth/restaurants/<restaurant_id>/members/<membership_id>/
     DELETE /api/auth/restaurants/<restaurant_id>/members/<membership_id>/
 
     Owner only.
     """
-
     permission_classes = [IsAuthenticated]
+
+    def get(self, request, restaurant_id: int, membership_id: int):
+        self._ensure_owner_access(request, restaurant_id)
+
+        membership = get_object_or_404(
+            RestaurantMembership.objects.select_related("role", "user", "restaurant"),
+            id=membership_id,
+            restaurant_id=restaurant_id,
+        )
+        return Response(RestaurantMembershipSerializer(membership).data)
 
     def patch(self, request, restaurant_id: int, membership_id: int):
         self._ensure_owner_access(request, restaurant_id)
@@ -107,89 +129,49 @@ class RestaurantMemberDetailView(APIView):
             restaurant_id=restaurant_id,
         )
 
-        if membership.role.name == Role.Names.OWNER:
-            return Response(
-                {"detail": "Owner role cannot be changed from this endpoint."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        serializer = MemberUpdateSerializer(data=request.data)
+        serializer = MemberUpdateSerializer(instance=membership, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        membership = serializer.update(membership, serializer.validated_data)
+        updated = serializer.save()
 
-        return Response(RestaurantMembershipSerializer(membership).data)
+        return Response(RestaurantMembershipSerializer(updated).data)
 
     def delete(self, request, restaurant_id: int, membership_id: int):
         self._ensure_owner_access(request, restaurant_id)
 
         membership = get_object_or_404(
-            RestaurantMembership.objects.select_related("role", "user", "restaurant"),
+            RestaurantMembership.objects.select_related("role"),
             id=membership_id,
             restaurant_id=restaurant_id,
         )
 
-        if membership.role.name == Role.Names.OWNER:
+        if membership.role.name == "OWNER":
             return Response(
                 {"detail": "Owner membership cannot be removed."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        membership.is_active = False
-        membership.save(update_fields=["is_active"])
+        if membership.is_active:
+            membership.is_active = False
+            membership.save(update_fields=["is_active"])
+
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     def _ensure_owner_access(self, request, restaurant_id: int) -> None:
         header_restaurant_id = request.headers.get("X-Restaurant-ID")
-        if not header_restaurant_id:
+
+        if header_restaurant_id:
+            try:
+                header_restaurant_id_int = int(header_restaurant_id)
+            except ValueError:
+                raise PermissionDenied("Invalid X-Restaurant-ID header.")
+            if header_restaurant_id_int != restaurant_id:
+                raise PermissionDenied("X-Restaurant-ID must match URL restaurant_id.")
+        else:
             request.META["HTTP_X_RESTAURANT_ID"] = str(restaurant_id)
 
-        assert_restaurant_access(request, allowed_roles=OWNER_ONLY)
-    
-
-def _assert_owner(user, restaurant_id: int):
-    is_owner = RestaurantMembership.objects.filter(
-        restaurant_id=restaurant_id,
-        user=user,
-        is_active=True,
-        role__name=Role.Names.OWNER,
-    ).exists()
-    if not is_owner:
-        raise PermissionDenied("Only restaurant owners can perform this action.")
-
-
-class RestaurantStaffRegisterView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, restaurant_id: int):
-        _assert_owner(request.user, restaurant_id)
-
-        restaurant = get_object_or_404(Restaurant, id=restaurant_id, is_active=True)
-
-        serializer = StaffRegisterInRestaurantSerializer(
-            data=request.data,
-            context={"restaurant": restaurant, "request": request},
+        restaurant_id_from_context, _membership = assert_restaurant_access(
+            request,
+            allowed_roles=OWNER_ONLY,
         )
-        serializer.is_valid(raise_exception=True)
-        membership = serializer.save()
-
-        return Response(RestaurantMembershipSerializer(membership).data, status=status.HTTP_201_CREATED)
-
-
-class RestaurantMemberRoleUpdateView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def patch(self, request, restaurant_id: int, membership_id: int):
-        _assert_owner(request.user, restaurant_id)
-
-        membership = get_object_or_404(
-            RestaurantMembership.objects.select_related("role"),
-            id=membership_id,
-            restaurant_id=restaurant_id,
-            is_active=True,
-        )
-
-        serializer = MemberRoleUpdateSerializer(membership, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        updated = serializer.save()
-
-        return Response(RestaurantMembershipSerializer(updated).data, status=status.HTTP_200_OK)
+        if restaurant_id_from_context != restaurant_id:
+            raise PermissionDenied("Restaurant context mismatch.")
