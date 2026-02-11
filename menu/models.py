@@ -1,14 +1,34 @@
-from django.db import models
 from decimal import Decimal
 
+from django.db import models
+
+
 class Category(models.Model):
-    name = models.CharField(max_length=120, unique=True)
-    slug = models.SlugField(max_length=140, unique=True)
+    restaurant = models.ForeignKey(
+        "accounts.Restaurant",
+        on_delete=models.PROTECT,
+        related_name="categories",
+    )
+    name = models.CharField(max_length=120)
+    slug = models.SlugField(max_length=140)
     sort_order = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)
 
     class Meta:
         ordering = ["sort_order", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["restaurant", "name"],
+                name="uq_category_restaurant_name",
+            ),
+            models.UniqueConstraint(
+                fields=["restaurant", "slug"],
+                name="uq_category_restaurant_slug",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["restaurant", "is_active"]),
+        ]
 
     def __str__(self):
         return self.name
@@ -30,8 +50,6 @@ class MenuItem(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.category.name})"
-
-
 
 
 class RecipeLine(models.Model):
