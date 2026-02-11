@@ -1,21 +1,20 @@
 import csv
-from io import TextIOWrapper
 from decimal import Decimal
+from io import TextIOWrapper
+
 from django.db import transaction
-from django.utils.text import slugify
-
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework.parsers import MultiPartParser, FormParser
-from rest_framework.permissions import IsAuthenticated
-
-from inventory.permissions import IsStaff
-from menu.models import Category, MenuItem, RecipeLine
-from inventory.models import InventoryItem
 from django.http import HttpResponse
-
-from django.utils.dateparse import parse_datetime, parse_date
 from django.utils import timezone
+from django.utils.dateparse import parse_date, parse_datetime
+from django.utils.text import slugify
+from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from accounts.tenancy import WRITE_ROLES, assert_restaurant_access
+from inventory.models import InventoryItem
+from menu.models import Category, MenuItem, RecipeLine
 from sales.models import Sale, SaleItem
 
 
@@ -40,15 +39,21 @@ class ImportCSVView(APIView):
     """
     POST /api/import/csv/
     form-data:
-      kind = categories | menu_items | ingredients | recipes
+      kind = categories | menu_items | ingredients | recipes | sales
       file = <csv file>
       dry_run = true/false (optional)
+
+    Required tenant header:
+      X-Restaurant-ID: <id>
     """
+
     parser_classes = [MultiPartParser, FormParser]
-    permission_classes = [IsAuthenticated, IsStaff]
+    permission_classes = [IsAuthenticated]
 
     @transaction.atomic
     def post(self, request):
+        restaurant_id, _ = assert_restaurant_access(request, allowed_roles=WRITE_ROLES)
+
         kind = (request.data.get("kind") or "").strip()
         dry_run = to_bool(request.data.get("dry_run"), default=False)
 
@@ -56,7 +61,6 @@ class ImportCSVView(APIView):
         if not f:
             return Response({"detail": "CSV file is required (field name: file)."}, status=400)
 
-        # Safe CSV reader (handles utf-8 with BOM)
         text = TextIOWrapper(f.file, encoding="utf-8-sig", newline="")
         reader = csv.DictReader(text)
 
@@ -65,38 +69,37 @@ class ImportCSVView(APIView):
 
         try:
             if kind == "categories":
-                result = self.import_categories(reader)
+                result = self.import_categories(reader, restaurant_id=restaurant_id)
             elif kind == "menu_items":
-                result = self.import_menu_items(reader)
+                result = self.import_menu_items(reader, restaurant_id=restaurant_id)
             elif kind == "ingredients":
-                result = self.import_ingredients(reader)
+                result = self.import_ingredients(reader, restaurant_id=restaurant_id)
             elif kind == "recipes":
-                result = self.import_recipes(reader)
+                result = self.import_recipes(reader, restaurant_id=restaurant_id)
             elif kind == "sales":
-                result = self.import_sales(reader, request)
+                result = self.import_sales(reader, request, restaurant_id=restaurant_id)
             else:
-                return Response({"detail": "Invalid kind. Use: categories | menu_items | ingredients | recipes"}, status=400)
+                return Response(
+                    {
+                        "detail": (
+                            "Invalid kind. Use: categories | menu_items | ingredients | recipes | sales"
+                        )
+                    },
+                    status=400,
+                )
 
             result["kind"] = kind
             result["dry_run"] = dry_run
 
             if dry_run:
-                # Rollback everything
                 transaction.set_rollback(True)
 
             return Response(result)
 
-        except Exception as e:
-            return Response({"detail": str(e)}, status=400)
+        except Exception as exc:
+            return Response({"detail": str(exc)}, status=400)
 
-    def import_categories(self, reader):
-        """
-        columns:
-          name (required)
-          slug (optional)
-          sort_order (optional)
-          is_active (optional)
-        """
+    def import_categories(self, reader, *, restaurant_id: int):
         created = 0
         updated = 0
         errors = []
@@ -111,29 +114,24 @@ class ImportCSVView(APIView):
                 sort_order = int((row.get("sort_order") or "0").strip() or "0")
                 is_active = to_bool(row.get("is_active"), default=True)
 
-                obj, was_created = Category.objects.update_or_create(
+                _obj, was_created = Category.objects.update_or_create(
+                    restaurant_id=restaurant_id,
                     slug=slug,
-                    defaults={"name": name, "sort_order": sort_order, "is_active": is_active},
+                    defaults={
+                        "name": name,
+                        "sort_order": sort_order,
+                        "is_active": is_active,
+                    },
                 )
                 created += 1 if was_created else 0
                 updated += 0 if was_created else 1
 
-            except Exception as e:
-                errors.append({"row": idx, "error": str(e), "data": row})
+            except Exception as exc:
+                errors.append({"row": idx, "error": str(exc), "data": row})
 
         return {"created": created, "updated": updated, "errors": errors}
 
-    def import_menu_items(self, reader):
-        """
-        columns:
-        name (required)
-        category_slug OR category_name (required)
-        slug (optional -> auto from name)
-        description (optional)
-        price (required)
-        is_available (optional)
-        sort_order (optional)
-        """
+    def import_menu_items(self, reader, *, restaurant_id: int):
         created = 0
         updated = 0
         errors = []
@@ -150,21 +148,19 @@ class ImportCSVView(APIView):
                     raise ValueError("category_slug or category_name is required")
 
                 if cat_slug:
-                    category = Category.objects.get(slug=cat_slug)
+                    category = Category.objects.get(restaurant_id=restaurant_id, slug=cat_slug)
                 else:
-                    category = Category.objects.get(name=cat_name)
+                    category = Category.objects.get(restaurant_id=restaurant_id, name=cat_name)
 
-                # slug: optional -> auto-generate
                 slug = (row.get("slug") or "").strip() or slugify(name)
-
                 description = (row.get("description") or "").strip()
                 price = to_decimal(row.get("price"))
                 is_available = to_bool(row.get("is_available"), default=True)
                 sort_order = int((row.get("sort_order") or "0").strip() or "0")
 
-                obj, was_created = MenuItem.objects.update_or_create(
+                _obj, was_created = MenuItem.objects.update_or_create(
                     category=category,
-                    slug=slug,  # ✅ unique with category
+                    slug=slug,
                     defaults={
                         "name": name,
                         "description": description,
@@ -177,22 +173,12 @@ class ImportCSVView(APIView):
                 created += 1 if was_created else 0
                 updated += 0 if was_created else 1
 
-            except Exception as e:
-                errors.append({"row": idx, "error": str(e), "data": row})
+            except Exception as exc:
+                errors.append({"row": idx, "error": str(exc), "data": row})
 
         return {"created": created, "updated": updated, "errors": errors}
 
-    def import_ingredients(self, reader):
-        """
-        columns:
-          sku (required, unique)
-          name (required)
-          unit (required)
-          reorder_level (optional)
-          cost_per_unit (optional)
-          current_stock (optional)  <-- updates stock directly (NO movements)
-          is_active (optional)
-        """
+    def import_ingredients(self, reader, *, restaurant_id: int):
         created = 0
         updated = 0
         errors = []
@@ -222,30 +208,23 @@ class ImportCSVView(APIView):
                     "is_active": is_active,
                 }
 
-                # Optional: set stock directly (no movements)
                 if row.get("current_stock") not in (None, ""):
                     defaults["current_stock"] = to_decimal(row.get("current_stock"), default="0.00")
 
-                obj, was_created = InventoryItem.objects.update_or_create(
+                _obj, was_created = InventoryItem.objects.update_or_create(
+                    restaurant_id=restaurant_id,
                     sku=sku,
                     defaults=defaults,
                 )
                 created += 1 if was_created else 0
                 updated += 0 if was_created else 1
 
-            except Exception as e:
-                errors.append({"row": idx, "error": str(e), "data": row})
+            except Exception as exc:
+                errors.append({"row": idx, "error": str(exc), "data": row})
 
         return {"created": created, "updated": updated, "errors": errors}
 
-    def import_recipes(self, reader):
-        """
-        columns:
-          menu_item_name (required)
-          menu_category_slug OR menu_category_name (optional but recommended)
-          ingredient_sku (required)
-          qty (required)  # per 1 menu item
-        """
+    def import_recipes(self, reader, *, restaurant_id: int):
         created = 0
         updated = 0
         errors = []
@@ -267,20 +246,24 @@ class ImportCSVView(APIView):
                 if qty <= 0:
                     raise ValueError("qty must be > 0")
 
-                ingredient = InventoryItem.objects.get(sku=ingredient_sku)
+                ingredient = InventoryItem.objects.get(
+                    restaurant_id=restaurant_id,
+                    sku=ingredient_sku,
+                )
 
-                # Find menu item (category filter helps if same names exist)
                 if cat_slug:
-                    category = Category.objects.get(slug=cat_slug)
+                    category = Category.objects.get(restaurant_id=restaurant_id, slug=cat_slug)
                     menu_item = MenuItem.objects.get(category=category, name=menu_name)
                 elif cat_name:
-                    category = Category.objects.get(name=cat_name)
+                    category = Category.objects.get(restaurant_id=restaurant_id, name=cat_name)
                     menu_item = MenuItem.objects.get(category=category, name=menu_name)
                 else:
-                    # fallback: if name is unique across menu
-                    menu_item = MenuItem.objects.get(name=menu_name)
+                    menu_item = MenuItem.objects.get(
+                        category__restaurant_id=restaurant_id,
+                        name=menu_name,
+                    )
 
-                obj, was_created = RecipeLine.objects.update_or_create(
+                _obj, was_created = RecipeLine.objects.update_or_create(
                     menu_item=menu_item,
                     ingredient=ingredient,
                     defaults={"qty": qty},
@@ -288,21 +271,12 @@ class ImportCSVView(APIView):
                 created += 1 if was_created else 0
                 updated += 0 if was_created else 1
 
-            except Exception as e:
-                errors.append({"row": idx, "error": str(e), "data": row})
+            except Exception as exc:
+                errors.append({"row": idx, "error": str(exc), "data": row})
 
         return {"created": created, "updated": updated, "errors": errors}
 
-    def import_sales(self, reader, request):
-        """
-        One CSV row = one sale line
-        Rows grouped by sale_ref become one Sale
-
-        IMPORTANT:
-        - During import we do NOT deduct ingredients (safe)
-        - status VOID/DRAFT are allowed and do not affect stock
-        """
-
+    def import_sales(self, reader, request, *, restaurant_id: int):
         created = 0
         updated = 0
         errors = []
@@ -314,13 +288,12 @@ class ImportCSVView(APIView):
                 if not sale_ref:
                     raise ValueError("sale_ref is required")
                 grouped.setdefault(sale_ref, []).append((idx, row))
-            except Exception as e:
-                errors.append({"row": idx, "error": str(e), "data": row})
+            except Exception as exc:
+                errors.append({"row": idx, "error": str(exc), "data": row})
 
         if errors:
             return {"created": 0, "updated": 0, "errors": errors}
 
-        # allowed values from your model choices (optional, but helps)
         allowed_status = {c[0] for c in (Sale._meta.get_field("status").choices or [])}
         allowed_pm = {c[0] for c in (Sale._meta.get_field("payment_method").choices or [])}
 
@@ -337,7 +310,6 @@ class ImportCSVView(APIView):
                 return timezone.make_aware(dt2)
             raise ValueError("Invalid sold_at (use YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)")
 
-        # ✅ Always false for imports (so NO recipe deduction triggers)
         APPLY_INGREDIENTS = False
 
         for sale_ref, rows in grouped.items():
@@ -360,8 +332,8 @@ class ImportCSVView(APIView):
                 discount = to_decimal(first.get("discount"), default="0.00")
                 tax = to_decimal(first.get("tax"), default="0.00")
 
-                # idempotent: same sale_ref updates instead of duplicates
                 sale, was_created = Sale.objects.update_or_create(
+                    restaurant_id=restaurant_id,
                     import_ref=sale_ref,
                     defaults={
                         "sold_at": sold_at,
@@ -394,9 +366,12 @@ class ImportCSVView(APIView):
                     item_name = (row.get("item_name") or "").strip()
 
                     if menu_item_id:
-                        menu_item = MenuItem.objects.get(pk=int(menu_item_id))
+                        menu_item = MenuItem.objects.get(
+                            pk=int(menu_item_id),
+                            category__restaurant_id=restaurant_id,
+                        )
                     elif cat_slug and mi_slug:
-                        category = Category.objects.get(slug=cat_slug)
+                        category = Category.objects.get(restaurant_id=restaurant_id, slug=cat_slug)
                         menu_item = MenuItem.objects.get(category=category, slug=mi_slug)
                     elif item_name:
                         name = item_name
@@ -405,7 +380,10 @@ class ImportCSVView(APIView):
                             f"Row {row_idx}: provide menu_item_id OR (category_slug + menu_item_slug) OR item_name"
                         )
 
-                    unit_price = to_decimal(row.get("unit_price"), default=str(menu_item.price if menu_item else "0.00"))
+                    unit_price = to_decimal(
+                        row.get("unit_price"),
+                        default=str(menu_item.price if menu_item else "0.00"),
+                    )
                     if not name:
                         name = menu_item.name if menu_item else item_name
 
@@ -429,85 +407,82 @@ class ImportCSVView(APIView):
                 sale.subtotal = subtotal.quantize(Decimal("0.01"))
                 sale.total = total
 
-                # ✅ Never deduct ingredients during import
                 if APPLY_INGREDIENTS and sale.status == "PAID":
-                    # deduct_inventory_for_sale(sale)
                     pass
 
-                # Also mark it as NOT deducted (safe)
                 sale.inventory_deducted = False
                 sale.save()
 
                 created += 1 if was_created else 0
                 updated += 0 if was_created else 1
 
-            except Exception as e:
-                errors.append({"row": rows[0][0], "error": f"{sale_ref}: {e}", "data": rows[0][1]})
+            except Exception as exc:
+                errors.append({"row": rows[0][0], "error": f"{sale_ref}: {exc}", "data": rows[0][1]})
 
         return {"created": created, "updated": updated, "errors": errors}
-
-
-    
-    
 
 
 class DownloadCSVTemplateView(APIView):
     """
     GET /api/import/template/?kind=categories
     """
-    permission_classes = [IsAuthenticated, IsStaff]
+
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        # Ensure user belongs to tenant before letting them download templates
+        assert_restaurant_access(request, allowed_roles=WRITE_ROLES)
+
         kind = request.query_params.get("kind")
-        
-        # Define headers matching your ImportCSVView logic exactly
+
         headers_map = {
-            "categories": [
-                "name", "slug", "sort_order", "is_active"
-            ],
+            "categories": ["name", "slug", "sort_order", "is_active"],
             "menu_items": [
-                "name", "category_name", "category_slug", "description", 
-                "price", "is_available", "sort_order"
+                "name",
+                "category_name",
+                "category_slug",
+                "description",
+                "price",
+                "is_available",
+                "sort_order",
             ],
             "ingredients": [
-                "sku", "name", "unit", "reorder_level", 
-                "cost_per_unit", "current_stock", "is_active"
+                "sku",
+                "name",
+                "unit",
+                "reorder_level",
+                "cost_per_unit",
+                "current_stock",
+                "is_active",
             ],
-            "recipes": [
-                "menu_item_name", "menu_category_name", "ingredient_sku", "qty"
-            ],
+            "recipes": ["menu_item_name", "menu_category_name", "ingredient_sku", "qty"],
             "sales": [
-                        "sale_ref",
-                        "sold_at",
-                        "status",
-                        "payment_method",
-                        "customer_name",
-                        "discount",
-                        "tax",
-                        "notes",
-                        "category_slug",
-                        "menu_item_slug",
-                        "menu_item_id",
-                        "item_name",
-                        "qty",
-                        "unit_price",
+                "sale_ref",
+                "sold_at",
+                "status",
+                "payment_method",
+                "customer_name",
+                "discount",
+                "tax",
+                "notes",
+                "category_slug",
+                "menu_item_slug",
+                "menu_item_id",
+                "item_name",
+                "qty",
+                "unit_price",
             ],
         }
 
         if kind not in headers_map:
             return HttpResponse("Invalid kind", status=400)
 
-        # Create the response as a CSV file attachment
         response = HttpResponse(content_type="text/csv")
         response["Content-Disposition"] = f'attachment; filename="template_{kind}.csv"'
 
         writer = csv.writer(response)
-        
-        # Write the headers
         writer.writerow(headers_map[kind])
-        
-        # Optional: Add a sample row to help the user understand
-        # (You can remove this block if you want purely empty templates)
+
         if kind == "categories":
             writer.writerow(["Starters", "starters", "1", "true"])
         elif kind == "menu_items":
