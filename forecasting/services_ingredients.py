@@ -1,13 +1,11 @@
 # forecasting/services_ingredients.py
-from decimal import Decimal
 from collections import defaultdict
-
-from django.db.models import Prefetch
-from django.utils import timezone
+from decimal import Decimal
 
 from inventory.models import InventoryItem
-from menu.models import RecipeLine, MenuItem
-from .services import predict_menu_demand  # your working forecast service
+from menu.models import MenuItem, RecipeLine
+
+from .services import predict_menu_demand
 
 
 def D(v) -> Decimal:
@@ -17,18 +15,25 @@ def D(v) -> Decimal:
         return Decimal("0")
 
 
-def build_ingredient_plan(horizon_days: int = 7, top_n_items: int = 50, scope: str = "next7"):
+def build_ingredient_plan(
+    horizon_days: int = 7,
+    top_n_items: int = 50,
+    scope: str = "next7",
+    restaurant_id: int | None = None,
+):
     """
     scope:
       - "tomorrow": use each item's predicted 'tomorrow'
       - "next7": use each item's predicted 'next_7_days_total'
     """
 
-    # 1) forecast menu items
-    forecast = predict_menu_demand(horizon_days=horizon_days, top_n=top_n_items)
+    forecast = predict_menu_demand(
+        horizon_days=horizon_days,
+        top_n=top_n_items,
+        restaurant_id=restaurant_id,
+    )
     items = forecast.get("items", [])
 
-    # demand map
     demand_by_item = {}
     for it in items:
         mid = int(it["menu_item_id"])
@@ -48,17 +53,18 @@ def build_ingredient_plan(horizon_days: int = 7, top_n_items: int = 50, scope: s
             "ingredients": [],
         }
 
-    # 2) load recipe lines for those menu items
-    recipe_lines = (
-        RecipeLine.objects
-        .filter(menu_item_id__in=item_ids)
-        .select_related("menu_item", "ingredient")
+    recipe_lines = RecipeLine.objects.filter(menu_item_id__in=item_ids).select_related(
+        "menu_item", "ingredient"
     )
+    if restaurant_id is not None:
+        recipe_lines = recipe_lines.filter(
+            menu_item__category__restaurant_id=restaurant_id,
+            ingredient__restaurant_id=restaurant_id,
+        )
 
-    # track which items have recipes
     has_recipe = set()
     required_by_ing = defaultdict(Decimal)
-    contributes = defaultdict(list)  # ingredient_id -> list of {menu_item_id, name, units, ingredient_qty}
+    contributes = defaultdict(list)
 
     for rl in recipe_lines:
         has_recipe.add(rl.menu_item_id)
@@ -70,16 +76,21 @@ def build_ingredient_plan(horizon_days: int = 7, top_n_items: int = 50, scope: s
         req = (D(units) * D(rl.qty)).quantize(Decimal("0.01"))
         required_by_ing[rl.ingredient_id] += req
 
-        contributes[rl.ingredient_id].append({
-            "menu_item_id": rl.menu_item_id,
-            "menu_item_name": rl.menu_item.name,
-            "predicted_units": int(units),
-            "per_unit_qty": str(rl.qty),
-            "required_qty": str(req),
-        })
+        contributes[rl.ingredient_id].append(
+            {
+                "menu_item_id": rl.menu_item_id,
+                "menu_item_name": rl.menu_item.name,
+                "predicted_units": int(units),
+                "per_unit_qty": str(rl.qty),
+                "required_qty": str(req),
+            }
+        )
 
-    # items missing recipes
-    menu_name_map = {m.id: m.name for m in MenuItem.objects.filter(id__in=item_ids).only("id", "name")}
+    menu_qs = MenuItem.objects.filter(id__in=item_ids).only("id", "name")
+    if restaurant_id is not None:
+        menu_qs = menu_qs.filter(category__restaurant_id=restaurant_id)
+    menu_name_map = {m.id: m.name for m in menu_qs}
+
     items_missing = [
         {"menu_item_id": mid, "menu_item_name": menu_name_map.get(mid, f"Item {mid}")}
         for mid in item_ids
@@ -87,9 +98,11 @@ def build_ingredient_plan(horizon_days: int = 7, top_n_items: int = 50, scope: s
     ]
 
     ing_ids = list(required_by_ing.keys())
-    inv = {i.id: i for i in InventoryItem.objects.filter(id__in=ing_ids)}
+    inv_qs = InventoryItem.objects.filter(id__in=ing_ids)
+    if restaurant_id is not None:
+        inv_qs = inv_qs.filter(restaurant_id=restaurant_id)
+    inv = {i.id: i for i in inv_qs}
 
-    # 3) compute stock status + suggestions
     ingredients_out = []
 
     for ing_id, required in required_by_ing.items():
@@ -102,33 +115,31 @@ def build_ingredient_plan(horizon_days: int = 7, top_n_items: int = 50, scope: s
 
         projected_remaining = (current - required).quantize(Decimal("0.01"))
 
-        # We consider "OK" if after predicted usage, remaining >= reorder_level
         ok = projected_remaining >= reorder
 
-        # Suggested purchase so that remaining after usage becomes at least reorder_level:
-        # current + purchase - required >= reorder  => purchase >= required + reorder - current
-        suggested_purchase = (required + reorder - current)
+        suggested_purchase = required + reorder - current
         if suggested_purchase < 0:
             suggested_purchase = Decimal("0.00")
         suggested_purchase = suggested_purchase.quantize(Decimal("0.01"))
 
         status = "OK" if ok else ("OUT" if projected_remaining <= 0 else "LOW")
 
-        ingredients_out.append({
-            "ingredient_id": item.id,
-            "ingredient_name": item.name,
-            "sku": item.sku,
-            "unit": item.unit,
-            "current_stock": str(current),
-            "reorder_level": str(reorder),
-            "required_qty": str(required.quantize(Decimal("0.01"))),
-            "projected_remaining": str(projected_remaining),
-            "status": status,
-            "suggested_purchase_qty": str(suggested_purchase),
-            "contributes": contributes.get(item.id, []),
-        })
+        ingredients_out.append(
+            {
+                "ingredient_id": item.id,
+                "ingredient_name": item.name,
+                "sku": item.sku,
+                "unit": item.unit,
+                "current_stock": str(current),
+                "reorder_level": str(reorder),
+                "required_qty": str(required.quantize(Decimal("0.01"))),
+                "projected_remaining": str(projected_remaining),
+                "status": status,
+                "suggested_purchase_qty": str(suggested_purchase),
+                "contributes": contributes.get(item.id, []),
+            }
+        )
 
-    # sort shortages first, then biggest purchase needed
     def sort_key(x):
         rank = {"OUT": 0, "LOW": 1, "OK": 2}.get(x["status"], 3)
         return (rank, -float(x["suggested_purchase_qty"]))
