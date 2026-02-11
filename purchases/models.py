@@ -1,8 +1,15 @@
 from decimal import Decimal
+
 from django.conf import settings
 from django.db import models
 
+
 class Supplier(models.Model):
+    restaurant = models.ForeignKey(
+        "accounts.Restaurant",
+        on_delete=models.PROTECT,
+        related_name="suppliers",
+    )
     name = models.CharField(max_length=180)
     email = models.EmailField(blank=True)
     phone = models.CharField(max_length=50, blank=True)
@@ -11,6 +18,9 @@ class Supplier(models.Model):
 
     class Meta:
         ordering = ["name"]
+        indexes = [
+            models.Index(fields=["restaurant", "is_active"]),
+        ]
 
     def __str__(self):
         return self.name
@@ -18,10 +28,15 @@ class Supplier(models.Model):
 
 class PurchaseInvoice(models.Model):
     class Status(models.TextChoices):
-        DRAFT = "DRAFT", "Draft"        
+        DRAFT = "DRAFT", "Draft"
         POSTED = "POSTED", "Posted"
         VOID = "VOID", "Void"
 
+    restaurant = models.ForeignKey(
+        "accounts.Restaurant",
+        on_delete=models.PROTECT,
+        related_name="purchase_invoices",
+    )
     supplier = models.ForeignKey(Supplier, on_delete=models.PROTECT, related_name="invoices")
     invoice_no = models.CharField(max_length=80, blank=True)  # optional supplier invoice number
     invoice_date = models.DateField()
@@ -50,6 +65,9 @@ class PurchaseInvoice(models.Model):
 
     class Meta:
         ordering = ["-invoice_date", "-id"]
+        indexes = [
+            models.Index(fields=["restaurant", "invoice_date", "status"]),
+        ]
 
     def __str__(self):
         return f"Purchase #{self.id} - {self.supplier.name}"

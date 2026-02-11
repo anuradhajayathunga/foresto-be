@@ -1,8 +1,11 @@
 from decimal import Decimal
+
 from django.db import transaction
 from rest_framework import serializers
-from .models import Supplier, PurchaseInvoice, PurchaseLine
+
 from inventory.models import InventoryItem, StockMovement
+from .models import PurchaseInvoice, PurchaseLine, Supplier
+
 
 class SupplierSerializer(serializers.ModelSerializer):
     class Meta:
@@ -28,10 +31,19 @@ class PurchaseInvoiceOutSerializer(serializers.ModelSerializer):
     class Meta:
         model = PurchaseInvoice
         fields = (
-            "id", "supplier", "supplier_name",
-            "invoice_no", "invoice_date", "status",
-            "subtotal", "discount", "tax", "total",
-            "note", "created_by", "created_at",
+            "id",
+            "supplier",
+            "supplier_name",
+            "invoice_no",
+            "invoice_date",
+            "status",
+            "subtotal",
+            "discount",
+            "tax",
+            "total",
+            "note",
+            "created_by",
+            "created_at",
             "lines",
         )
 
@@ -40,8 +52,6 @@ class PurchaseLineInSerializer(serializers.Serializer):
     item = serializers.IntegerField()
     qty = serializers.DecimalField(max_digits=12, decimal_places=2)
     unit_cost = serializers.DecimalField(max_digits=12, decimal_places=2)
-
-    
 
 
 class PurchaseInvoiceCreateSerializer(serializers.Serializer):
@@ -66,14 +76,16 @@ class PurchaseInvoiceCreateSerializer(serializers.Serializer):
     @transaction.atomic
     def create(self, validated):
         user = self.context["request"].user
+        restaurant_id = self.context["restaurant_id"]
 
         supplier_id = validated["supplier"]
-        supplier = Supplier.objects.get(pk=supplier_id)
+        supplier = Supplier.objects.get(pk=supplier_id, restaurant_id=restaurant_id)
 
         discount = validated.get("discount", Decimal("0.00"))
         tax = validated.get("tax", Decimal("0.00"))
 
         invoice = PurchaseInvoice.objects.create(
+            restaurant_id=restaurant_id,
             supplier=supplier,
             invoice_no=validated.get("invoice_no", ""),
             invoice_date=validated["invoice_date"],
@@ -86,9 +98,11 @@ class PurchaseInvoiceCreateSerializer(serializers.Serializer):
 
         subtotal = Decimal("0.00")
 
-        # lock items to update stock safely
         for idx, l in enumerate(validated["lines"]):
-            item = InventoryItem.objects.select_for_update().get(pk=l["item"])
+            item = InventoryItem.objects.select_for_update().get(
+                pk=l["item"],
+                restaurant_id=restaurant_id,
+            )
             qty = Decimal(l["qty"]).quantize(Decimal("0.01"))
             unit_cost = Decimal(l["unit_cost"]).quantize(Decimal("0.01"))
             line_total = (qty * unit_cost).quantize(Decimal("0.01"))
@@ -103,12 +117,10 @@ class PurchaseInvoiceCreateSerializer(serializers.Serializer):
                 sort_order=idx,
             )
 
-            # update stock
             item.current_stock = (item.current_stock + qty).quantize(Decimal("0.01"))
-            item.cost_per_unit = unit_cost  # optional: update latest cost
+            item.cost_per_unit = unit_cost
             item.save(update_fields=["current_stock", "cost_per_unit", "updated_at"])
 
-            # create movement history
             StockMovement.objects.create(
                 item=item,
                 movement_type=StockMovement.Type.IN_,
@@ -128,8 +140,10 @@ class PurchaseInvoiceCreateSerializer(serializers.Serializer):
 
         return invoice
 
+
 class PurchaseVoidSerializer(serializers.Serializer):
     reason = serializers.CharField(required=False, allow_blank=True, max_length=200)
+
 
 class PurchaseDraftFromForecastSerializer(serializers.Serializer):
     supplier = serializers.IntegerField()  # required (your model requires supplier)
@@ -137,5 +151,5 @@ class PurchaseDraftFromForecastSerializer(serializers.Serializer):
     horizon_days = serializers.IntegerField(required=False, default=7)
     top_n = serializers.IntegerField(required=False, default=50)
     include_ok = serializers.BooleanField(required=False, default=False)
-    invoice_date = serializers.DateField(required=False)  # optional, default today
+    invoice_date = serializers.DateField(required=False)
     note = serializers.CharField(required=False, allow_blank=True)
