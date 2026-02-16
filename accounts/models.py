@@ -1,29 +1,71 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.utils.text import slugify
+
+
+class Restaurant(models.Model):
+    name = models.CharField(max_length=150)
+    slug = models.SlugField(max_length=170, unique=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    subscription_tier = models.CharField(
+        max_length=20,
+        choices=[
+            ('FREE', 'Free'),
+            ('PRO', 'Pro'),
+            ('ENTERPRISE', 'Enterprise'),
+        ],
+        default='FREE'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+        indexes = [models.Index(fields=["slug"])]
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            base = slugify(self.name)[:150] or "restaurant"
+            candidate = base
+            n = 2
+            while Restaurant.objects.filter(slug=candidate).exclude(pk=self.pk).exists():
+                candidate = f"{base}-{n}"
+                n += 1
+            self.slug = candidate
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.name
+
 
 class User(AbstractUser):
     class Role(models.TextChoices):
-        ADMIN = "ADMIN", "Admin"
-        STAFF = "STAFF", "Staff"
+        OWNER = "OWNER", "Owner"
         MANAGER = "MANAGER", "Manager"
+        STAFF = "STAFF", "Staff"
+        VIEWER = "VIEWER", "Viewer"
+        ADMIN = "ADMIN", "Admin"  
 
     email = models.EmailField(unique=True)
-    role = models.CharField(max_length=20, choices=Role.choices, default=Role.MANAGER)
+    role = models.CharField(max_length=20, choices=Role.choices, default=Role.OWNER)
+
+    # nullable first for safe migration
+    restaurant = models.ForeignKey(
+        "accounts.Restaurant",
+        on_delete=models.CASCADE,
+        related_name="users",
+        null=True,
+        blank=True,
+    )
 
     def save(self, *args, **kwargs):
-        # keep permissions consistent with role
-        if self.is_superuser:
+        # Global admin
+        if self.is_superuser or self.role == self.Role.ADMIN:
             self.role = self.Role.ADMIN
+            self.is_superuser = True
             self.is_staff = True
         else:
-            if self.role == self.Role.STAFF:
-                self.is_staff = True
-                self.is_superuser = False
-            elif self.role == self.Role.MANAGER:
-                self.is_staff = True
-                self.is_superuser = True
-            elif self.role == self.Role.ADMIN:
-                self.is_staff = True
-                self.is_superuser = True
+            self.is_superuser = False
+            # Keep Django admin access for internal roles if you want
+            self.is_staff = self.role in {self.Role.OWNER, self.Role.MANAGER, self.Role.STAFF}
 
         super().save(*args, **kwargs)

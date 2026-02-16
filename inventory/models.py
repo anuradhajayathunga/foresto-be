@@ -13,7 +13,13 @@ class InventoryItem(models.Model):
     name = models.CharField(max_length=180)
     sku = models.CharField(max_length=60, unique=True)  # code like CHICKEN01
     unit = models.CharField(max_length=5, choices=Unit.choices, default=Unit.PCS)
-
+    restaurant = models.ForeignKey(
+        "accounts.Restaurant",
+        on_delete=models.CASCADE,
+        related_name="inventory_item",
+        null=True,
+        blank=True,
+    )
     current_stock = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
     reorder_level = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
 
@@ -25,7 +31,7 @@ class InventoryItem(models.Model):
 
     class Meta:
         ordering = ["name"]
-
+        indexes = [models.Index(fields=["restaurant", "sku"])]
     def __str__(self):
         return f"{self.name} ({self.sku})"
 
@@ -38,7 +44,13 @@ class StockMovement(models.Model):
 
     item = models.ForeignKey(InventoryItem, on_delete=models.CASCADE, related_name="movements")
     movement_type = models.CharField(max_length=10, choices=Type.choices)
-
+    restaurant = models.ForeignKey(
+        "accounts.Restaurant",
+        on_delete=models.CASCADE,
+        related_name="stock_movement",
+        null=True,
+        blank=True,
+    )
     # For IN/OUT: quantity should be positive
     # For ADJUST: quantity can be + or - (delta)
     quantity = models.DecimalField(max_digits=12, decimal_places=2)
@@ -53,6 +65,6 @@ class StockMovement(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
-
+        indexes = [models.Index(fields=["restaurant", "item", "movement_type"])]
     def __str__(self):
         return f"{self.movement_type} {self.quantity} {self.item.sku}"
