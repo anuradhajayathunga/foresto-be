@@ -6,7 +6,6 @@ from django.utils.text import slugify
 class Restaurant(models.Model):
     name = models.CharField(max_length=150)
     slug = models.SlugField(max_length=170, unique=True, blank=True)
-    is_active = models.BooleanField(default=True)
     subscription_tier = models.CharField(
         max_length=20,
         choices=[
@@ -16,7 +15,9 @@ class Restaurant(models.Model):
         ],
         default='FREE'
     )
+    is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["name"]

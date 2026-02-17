@@ -100,6 +100,18 @@ class RegisterOwnerSerializer(serializers.Serializer):
         user.save()
         return user
 
+class RestaurantDetailSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Restaurant
+        fields = [
+            "id",
+            "name",
+            "slug",
+            "is_active",
+            "subscription_tier",
+            "created_at",
+            "updated_at",
+        ]
 
 class TeamUserCreateSerializer(serializers.Serializer):
     username = serializers.CharField(max_length=150, required=False, allow_blank=True)

@@ -5,8 +5,11 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
+from accounts.models import Restaurant
+
 from .serializers import (
     RegisterOwnerSerializer,
+    RestaurantDetailSerializer,
     UserSerializer,
     TeamUserCreateSerializer,
     TeamUserUpdateSerializer,
@@ -36,6 +39,32 @@ class MeView(APIView):
 
     def get(self, request):
         return Response(UserSerializer(request.user).data)
+    
+class MyRestaurantsView(APIView):
+    """
+    GET y-restaurants/  -> current user's restaurant details
+    Optional: superuser can get all with ?all=1
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+
+        # Optional: admin mode
+        if user.is_superuser and request.query_params.get("all") == "1":
+            qs = Restaurant.objects.filter(is_active=True).order_by("name")
+            data = RestaurantDetailSerializer(qs, many=True).data
+            return Response(data, status=status.HTTP_200_OK)
+
+        # Normal user: return assigned restaurant only
+        if not getattr(user, "restaurant_id", None):
+            return Response(
+                {"detail": "No restaurant assigned to this user."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        data = RestaurantDetailSerializer(user.restaurant).data
+        return Response(data, status=status.HTTP_200_OK)
 
 
 class TeamUserViewSet(viewsets.ModelViewSet):
