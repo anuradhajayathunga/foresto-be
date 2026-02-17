@@ -8,4 +8,4 @@ class IsStaffOrReadOnly(BasePermission):
         if not user or not user.is_authenticated:
             return False
         # supports either role field or is_staff
-        return getattr(user, "is_staff", False) or getattr(user, "role", "") in ["ADMIN", "MANAGER"]
+        return getattr(user, "is_staff", False) or getattr(user, "role", "") in ["ADMIN", "MANAGER","OWNER"]
