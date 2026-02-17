@@ -29,6 +29,7 @@ INSTALLED_APPS = [
     "django_filters",
 
     # local apps
+     "core",
     "accounts",
     "menu",
     "sales",
